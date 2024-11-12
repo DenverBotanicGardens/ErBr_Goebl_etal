@@ -206,7 +206,7 @@ dats[1217,]$InflYesNo <- 0
 
 
 ## RUN ASSOCIATED JAGS MODEL ----------------------------------------------------------------------
-jags.mod <- run.jags('erbr_3JAGSmodBest_20241010.R', n.chains=3, data=dats, burnin=10000, thin=10, sample=30000, adapt=500, method='parallel')
+jags.mod <- run.jags('erbr_3JAGSmodBest.R', n.chains=3, data=dats, burnin=10000, thin=10, sample=30000, adapt=500, method='parallel')
 
 ## Save output
 saveRDS(jags.mod, "erbr_JAGSmodBest_c3t10s30b10.rds")

@@ -93,7 +93,7 @@ model{
  
    p.infls[i] <- r.infls/(r.infls + repro_amount[rows.w.inflors[i]])
 
-   InflNew[rows.w.inflors[i]] ~ dnegbin(p.infls[i], r.infls)
+   InflNew[rows.w.inflors[i]] ~ dnegbin(p.infls[i], r.infls)T(1,)
     
   }
   #####################################################################
@@ -107,8 +107,8 @@ model{
     
     p[goodgrowrows[i]] <- r.growth[goodgrowrows[i]]/(r.growth[goodgrowrows[i]]+regression_mean[goodgrowrows[i]])
     
-    RosNew[goodgrowrows[i]] ~ dnegbin( p[goodgrowrows[i]], r.growth[goodgrowrows[i]])
-    
+    RosNew[goodgrowrows[i]] ~ dnegbin(p[goodgrowrows[i]], r.growth[goodgrowrows[i]])T(1,)
+
   } #End of going through cases for sizes
   #####################################################################
 
