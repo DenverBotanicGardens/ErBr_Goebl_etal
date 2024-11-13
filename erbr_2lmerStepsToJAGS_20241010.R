@@ -25,6 +25,10 @@ library(matrixStats)
 
 
 
+## SET WD (WHERE JAGS SCRIPT IS LOCATED) ----------------------------------------------------------
+## ------------------------------------------------------------------------------------------------
+
+
 
 ## LOAD DATA --------------------------------------------------------------------------------------
 dats <- read.csv("erbr_TagClust2022_20230408.csv", header = TRUE)
@@ -37,8 +41,17 @@ dats <- read.csv("erbr_TagClust2022_20230408.csv", header = TRUE)
 
 
 
-## SET WD (WHERE JAGS SCRIPT IS LOCATED) ----------------------------------------------------------
+## RESCALE ALL CLIMATE VARIABLES ------------------------------------------------------------------
+clim32yrMAXES <- read.csv("erbr_climData3seas32yr_MAXES.csv", header=TRUE)
+dats$Tot_fall_ppt	 =dats$Tot_fall_ppt/clim32yrMAXES$Tot_fall_ppt
+dats$Tot_winter_ppt	= dats$Tot_winter_ppt/clim32yrMAXES$Tot_winter_ppt
+dats$Tot_summer_ppt =	dats$Tot_summer_ppt/clim32yrMAXES$Tot_summer_ppt
+dats$Mean_fall_temp	= dats$Mean_fall_temp/clim32yrMAXES$Mean_fall_temp
+dats$Mean_winter_temp	=dats$Mean_winter_temp/clim32yrMAXES$Mean_winter_temp
+dats$Mean_summer_temp =dats$Mean_summer_temp/clim32yrMAXES$Mean_summer_temp
 ## ------------------------------------------------------------------------------------------------
+
+
 
 
 
