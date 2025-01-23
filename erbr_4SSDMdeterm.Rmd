@@ -1,0 +1,711 @@
+---
+title: "erbr_SSDM_deterministic"
+author: "April Goebl and Dan Doak"
+date: "3/9/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+rm(list=ls())
+knitr::opts_chunk$set(echo = FALSE)
+library(MASS)
+library(dplyr)
+library(matrixStats)
+library(corrplot)
+library(rgl)
+library(lattice)
+library(viridis) 
+library(car)
+library(coda)
+library(lme4)
+
+```
+
+
+
+```{r, echo=FALSE}
+
+## LOAD DATA 
+erbr <- read.csv("erbr_TagClust2022_20230408.csv", header=TRUE)
+clim32yr <- read.csv("erbr_climData3seas32yr_221114.csv", header=TRUE)
+
+
+## MODIFY DATA
+## Check structure of, and modify variables as needed 
+#str(erbr)
+erbr$Year <- as.factor(erbr$Year)
+
+
+## CHANGE NAMES OF CLIMATE COLUMNS ------------------------------------------------------------------
+erbr <- rename(erbr, PptFall=Tot_fall_ppt, PptWinter=Tot_winter_ppt, PptSummer=Tot_summer_ppt,
+               TempFall=Mean_fall_temp, TempWinter=Mean_winter_temp, TempSummer=Mean_summer_temp)
+
+## Add t+1 climate, sz, & tag into erbr data 
+erbr <- erbr %>% mutate(TagNew1=lead(TagNew), RosNew1=lead(RosNew))  
+erbr <- erbr %>% mutate(PptFall1=lead(PptFall), PptWinter1=lead(PptWinter), PptSummer1=lead(PptSummer),
+                        TempFall1=lead(TempFall), TempWinter1=lead(TempWinter), TempSummer1=lead(TempSummer))
+
+erbr <- erbr[which(erbr$TagNew == erbr$TagNew1),]  #Remove lines with mis-matched individuals 
+
+```
+
+
+
+
+## PLOT HISTORIACAL AND STUDY PERIOD CLIMATE DATA 
+```{r}
+
+climStudyYrs <- clim32yr[clim32yr$Year>2003 & clim32yr$Year<2023,]
+
+
+par(mfrow=c(1,2))                     
+par(pty="s")
+par(mar=c(4.3,4.5,2,2))
+plot(clim32yr$Tot_winter_ppt, clim32yr$Tot_summer_ppt, pch=16, ylab="Summer precipitation (mm)",
+     xlab="Winter precipitation (mm)", cex.lab=1.4, cex.axis=1.05, cex=1.25)
+points(climStudyYrs$Tot_winter_ppt, climStudyYrs$Tot_summer_ppt, pch=16, col="red")
+
+par(pty="s")
+par(mar=c(4.3,4.5,2,2))
+plot(clim32yr$Tot_winter_ppt, clim32yr$Mean_winter_temp, pch=16, ylab="Winter temperature (C)",
+     xlab="Winter precipitation (mm)", cex.lab=1.4, cex.axis=1.05, cex=1.25)
+points(climStudyYrs$Tot_winter_ppt, climStudyYrs$Mean_winter_temp, pch=16, col="red")
+
+
+## PLOT ANNUAL PRECIP AND MEAN ANNUAL TEMP (Supp data figure)
+clim32yr.tots <- clim32yr %>% mutate(Tot_ann_ppt=rowSums(across(Tot_fall_ppt:Tot_summer_ppt)),
+                            Mean_ann_temp=rowMeans(across(Mean_fall_temp:Mean_summer_temp)))
+climStudyYrs.tots <- clim32yr.tots[clim32yr.tots$Year>2003 & clim32yr.tots$Year<2023,]
+
+par(mar=c(4.3,4.5,2,2))
+par(pty="s")
+plot(clim32yr.tots$Tot_ann_ppt, clim32yr.tots$Mean_ann_temp, pch=16, ylab="Mean annual temperature (°C)",
+     xlab="Annual precipitation (mm)", cex.lab=1.4, cex.axis=1.05, cex=1.25)
+points(climStudyYrs.tots$Tot_ann_ppt, climStudyYrs.tots$Mean_ann_temp, pch=16, col="red")
+
+
+
+
+## PLOT SEASONAL VALUES FOR EACH YEAR
+library(lattice)
+library(tidyr)
+
+## Precip
+## Re-format data
+ppt.stacked <- climStudyYrs %>% gather(season_ppt, ppt, Tot_fall_ppt:Tot_summer_ppt) 
+
+ppt.fall <- ppt.stacked[which(ppt.stacked$season_ppt=="Tot_fall_ppt"),]
+ppt.winter <- ppt.stacked[which(ppt.stacked$season_ppt=="Tot_winter_ppt"),]
+ppt.summer <- ppt.stacked[which(ppt.stacked$season_ppt=="Tot_summer_ppt"),]
+
+ppt.comb <- cbind(ppt.fall$ppt, ppt.winter$ppt, ppt.summer$ppt)
+colnames(ppt.comb) <- c("fall_ppt","winter_ppt","summer_ppt")
+rownames(ppt.comb) <- climStudyYrs$Year
+
+
+## Temperature
+## Re-format data
+temp.stacked <- climStudyYrs %>% gather(season_temp, temp, Mean_fall_temp:Mean_summer_temp) 
+
+temp.fall <- temp.stacked[which(temp.stacked$season_temp=="Mean_fall_temp"),]
+temp.winter <- temp.stacked[which(temp.stacked$season_temp=="Mean_winter_temp"),]
+temp.summer <- temp.stacked[which(temp.stacked$season_temp=="Mean_summer_temp"),]
+
+temp.comb <- cbind(temp.fall$temp, temp.winter$temp, temp.summer$temp)
+colnames(temp.comb) <- c("fall_temp","winter_temp","summer_temp")
+rownames(temp.comb) <- climStudyYrs$Year
+
+
+
+
+## Plot (Supp data figure)
+#col=c("#f0bd27","#98d9e4","#51b364")
+colz <- c("#d73027","#fc8d59","#91bfdb","#4575b4","#fdcb44","#fee090","grey60")
+
+par(mfrow=c(2,1), mar=c(4.9,3.9,1.4,1.7)) #bottom, left, top, and right
+barplot(t(temp.comb), beside=TRUE, ylab="Mean seasonal temperature (°C)", cex.names=0.8, col=c("black","grey50","grey80"), border=FALSE, las=1)
+#text(1.5,-2.9, "X", cex=1,xpd=TRUE)
+#arrows(1,-2.1,76,-2.1, lwd=3, angle=90, code=3, length=0, col=colz[1],xpd=TRUE)
+#arrows(1,-2.4,40,-2.4, lwd=3, angle=90, code=3, length=0, col=colz[2],xpd=TRUE)
+#arrows(1,-2.7,20,-2.7, lwd=3, angle=90, code=3, length=0, col=colz[5],xpd=TRUE)
+#arrows(21,-3,40,-3, lwd=3, angle=90, code=3, length=0, col=colz[6],xpd=TRUE)
+legend("bottom", c("Fall", "Winter", "Summer"), col=c("black","grey50","grey80"),
+       cex=1.2, horiz=TRUE, bty="n", pch=15, inset=c(3.9,-0.32), xpd=TRUE) 
+
+
+barplot(t(ppt.comb), beside=TRUE, ylab="Total seasonal precipitation (mm)", cex.names=0.8, col=c("black","grey50","grey80"), border=FALSE, las=1)
+arrows(1,-80,40,-80, lwd=4, angle=90, code=3, length=0, col=colz[1],xpd=TRUE)
+arrows(49,-80,52,-80, lwd=4, angle=90, code=3, length=0, col=colz[1],xpd=TRUE)
+arrows(57,-80,60,-80, lwd=4, angle=90, code=3, length=0, col=colz[1],xpd=TRUE)
+arrows(65,-80,68,-80, lwd=4, angle=90, code=3, length=0, col=colz[1],xpd=TRUE)
+arrows(73,-80,76,-80, lwd=4, angle=90, code=3, length=0, col=colz[1],xpd=TRUE)
+arrows(1,-90,40,-90, lwd=4, angle=90, code=3, length=0, col=colz[2],xpd=TRUE)
+arrows(1,-100,20,-100, lwd=4, angle=90, code=3, length=0, col=colz[5],xpd=TRUE)
+arrows(21,-110,40,-110, lwd=4, angle=90, code=3, length=0, col=colz[6],xpd=TRUE)
+
+arrows(1,-120,4,-120, lwd=4, angle=90, code=3, length=0, col=colz[3],xpd=TRUE)
+arrows(9,-120,12,-120, lwd=4, angle=90, code=3, length=0, col=colz[3],xpd=TRUE)
+arrows(17,-120,20,-120, lwd=4, angle=90, code=3, length=0, col=colz[3],xpd=TRUE)
+arrows(25,-120,28,-120, lwd=4, angle=90, code=3, length=0, col=colz[3],xpd=TRUE)
+arrows(33,-120,36,-120, lwd=4, angle=90, code=3, length=0, col=colz[3],xpd=TRUE)
+
+arrows(5,-130,8,-130, lwd=4, angle=90, code=3, length=0, col=colz[4],xpd=TRUE)
+arrows(13,-130,16,-130, lwd=4, angle=90, code=3, length=0, col=colz[4],xpd=TRUE)
+arrows(21,-130,24,-130, lwd=4, angle=90, code=3, length=0, col=colz[4],xpd=TRUE)
+arrows(29,-130,32,-130, lwd=4, angle=90, code=3, length=0, col=colz[4],xpd=TRUE)
+arrows(37,-130,40,-130, lwd=4, angle=90, code=3, length=0, col=colz[4],xpd=TRUE)
+
+legend("topright", c("Full dataset","2004-2013","2004-2013 even yrs only","2004-2013 odd yrs only",
+       "2004-2008","2009-2013"), col=colz[1:6], cex=0.83, horiz=FALSE, bty="y", lty="solid",lwd=4) 
+
+```
+
+
+
+## SET UP FOR SSDM
+```{r}
+
+## SPECIFIY MIN AND MAX PLANT SIZE
+minsize <- 1
+maxsize <- (max(erbr$RosNew, na.rm=TRUE)) 
+
+
+## FOR MEDIAN SIZE ESTIMATION
+##new size density estimation for median size estimation
+pdfsz=density(erbr$RosNew, n=1024, cut=0, na.rm=TRUE) 
+pdfsz2=cbind(pdfsz$x,pdfsz$y)
+## This is a set of smoothed values that can then be used with weightedMedian in the matrixStats package to get a 'good' median for each class.
+
+```
+
+
+
+
+## LOAD MODEL OUTPUT FROM JAGS RUN
+```{r}
+
+## Load JAGS model output to get chains for all parameters
+#jags.mod <- readRDS("erbr_JAGSmodBest_c3t10s30b10.rds")
+#chains <- jags.mod$mcmc
+#chains <- bind_rows(lapply(chains, as.data.frame)) 
+
+## Save 'chains' variable for easy re-loading
+#saveRDS(chains, file="chains.c3t10s30b10.rds")
+chains <- readRDS("chains.c3t10s30b10.rds")
+
+```
+
+
+
+
+## SSDM - COMPARE OUTPUT BASED ON DIFFERENT NUMBERS OF SIZE BINS
+```{r}
+
+## DEFINE NUMBER OF SIZE BINS TO USE 
+## For determining appropriate number of bins
+bin.num <- c(5,10,20,30,40,45,50,55,60,65,70,75,80,90,100)  
+
+
+
+## CALCULATE MEDIAN PARAMETER VALUES (exclude param uncertainty here)
+medParams <- as.data.frame(colMedians(as.matrix(chains)))
+medParams <-as.data.frame(t(as.data.frame(medParams)))
+colnames(medParams) <- colnames(chains)
+
+
+
+## CALCULATE MEAN CLIMATE CONDITIONS 
+climStudyYrs <- clim32yr[clim32yr$Year>2003 & clim32yr$Year<2023,] #Subset to keep yrs of study period only
+climMeans <- colMeans(climStudyYrs)
+
+
+
+## CREATE VARIABLES TO STORE OUTPUT 
+column.names <- c("BIN.NUM","LAMBDA")
+lam.out.template <- as.data.frame(matrix(NA, nrow=length(bin.num), ncol=length(column.names)))
+colnames(lam.out.template) <- column.names
+lam.out.template$BIN.NUM <- rep(bin.num)
+
+
+
+## LOOP OVER DIFFERENT NUMBERS OF BINS
+for (bb in 1:length(bin.num)) {
+  
+## Improved method of finding median size/ bin mids 
+  vec.bin = c(minsize, minsize+1:bin.num[bb]*(maxsize-minsize)*(1/bin.num[bb])) 
+  ## Do this block to make medians the focal estimated size for each category
+  binmids = rep(NA, length(vec.bin)-1)
+      
+  for(jj in 1:(length(vec.bin)-1)) {
+      ## Set limits for subset according to bin breaks
+      bounds <- c(vec.bin[jj], vec.bin[jj+1])
+      ## Subset data according to bounds
+      subsetszs <- pdfsz2[which(pdfsz2[,1] >= bounds[1] & pdfsz2[,1] < bounds[2]),]
+      binmids[jj] <- weightedMedian(subsetszs[,1],subsetszs[,2])
+      }
+    
+  n.bin = length(binmids)
+  truebinsizes = n.bin  
+
+
+  ## Initialize variable with input data for predictions
+  in.data <- as.data.frame(binmids) 
+  colnames(in.data) <- "RosNew"
+
+        
+        ## Plug in median param values, mean climate & selected size predictor values for size classes/ loop into model formulas
+        ## Exclude random transect effects here 
+        ## Growth (negative binomial)
+        pred.grwth <- exp(medParams$grwth_intercept + medParams$grwth_RosCoef*log(in.data$RosNew) 
+                          + medParams$grwth_TempFallCoef*climMeans["Mean_fall_temp"]
+                          + medParams$grwth_TempSummerCoef*climMeans["Mean_summer_temp"]
+                          + medParams$grwth_TempWinterCoef*climMeans["Mean_winter_temp"]
+                          + medParams$grwth_PptFallCoef*climMeans["Tot_fall_ppt"]
+                          + medParams$grwth_PptSummerCoef*climMeans["Tot_summer_ppt"]
+                          + medParams$grwth_PptWinterCoef*climMeans["Tot_winter_ppt"])
+
+        ## Variance in growth (negative binomial)
+        pred.grwthVar <- exp(medParams$grwthvar_intercept + medParams$grwthvar_RosCoef*log(in.data$RosNew)) 
+
+        ## Survival (binomial)  
+        pred.surv <- 1/(1+exp(-(medParams$surv_intercept + medParams$surv_RosCoef*in.data$RosNew + 
+                                medParams$surv_PptWinterCoef*climMeans["Tot_winter_ppt"] + 
+                                medParams$surv_TempWinterCoef*climMeans["Mean_winter_temp"] +
+                                medParams$surv_TempSummerCoef*climMeans["Mean_summer_temp"] + 
+                                medParams$surv_TempFallCoef*climMeans["Mean_fall_temp"])))
+
+        ## Probability of reproducing (binomial)  
+        pred.reproYesNo <- 1/(1+exp(-(medParams$reproyesno_intercept + medParams$reproyesno_RosCoef*log(in.data$RosNew) +
+                                      medParams$reproyesno_PptFallCoef*climMeans["Tot_fall_ppt"] +
+                                      medParams$reproyesno_PptSummerCoef*climMeans["Tot_summer_ppt"] +
+                                      medParams$reproyesno_TempFallCoef*climMeans["Mean_fall_temp"] +
+                                      medParams$reproyesno_TempSummerCoef*climMeans["Mean_summer_temp"] +
+                                      medParams$reproyesno_TempWinterCoef*climMeans["Mean_winter_temp"]))) 
+
+        ## Reproduction (negative binomial)
+        pred.repro <- exp(medParams$repro_intercept + medParams$repro_RosCoef*log(in.data$RosNew) + 
+                          medParams$repro_PptFallCoef*climMeans["Tot_fall_ppt"] +
+                          medParams$repro_PptSummerCoef*climMeans["Tot_summer_ppt"] +
+                          medParams$repro_TempSummerCoef*climMeans["Mean_summer_temp"] +
+                          medParams$repro_TempWinterCoef*climMeans["Mean_winter_temp"] +
+                          medParams$repro_TempFallCoef*climMeans["Mean_fall_temp"])
+
+        ## Seedling survival (binomial)  
+        in.dataSdlg <- in.data[1,]  #Subset to keep only 1 row of in.data 
+        in.dataSdlg <- 1            #Change rosette size to be 1 (size of seedling)
+        pred.survSdlg <- 1/(1+exp(-(medParams$surv_intercept + medParams$surv_RosCoef*log(in.dataSdlg) + 
+                                medParams$surv_PptWinterCoef*climMeans["Tot_winter_ppt"] + 
+                                medParams$surv_TempWinterCoef*climMeans["Mean_winter_temp"] +
+                                medParams$surv_TempSummerCoef*climMeans["Mean_summer_temp"] + 
+                                medParams$surv_TempFallCoef*climMeans["Mean_fall_temp"])))
+    
+        ## Seedlings per inflorescence (negative binomial)
+        pred.numSdlg <- exp(medParams$newplt_intercept + log(pred.repro))
+
+        
+        ## Constructing matrix models
+        grwth.mx <- matrix(data=NA, nrow=n.bin, ncol=n.bin)
+        ## Growth probabilities using cdf function
+        for (ss in 1:(n.bin)) {
+          grwth.cdf <- pnorm(vec.bin, pred.grwth[ss], sqrt(pred.grwthVar[ss]))
+          grwth <- grwth.cdf[2:length(vec.bin)] - grwth.cdf[1:(length(vec.bin)-1)]
+          if (sum(grwth)>0) {   #If statement breaks code (puts NAs into matrix) if sum of PDF=0 (happens if all prob is outside size bounds)
+            grwth <- grwth/sum(grwth)
+            grwth.mx[,ss] <- grwth
+            } else {
+              grwth.mx[,ss] <- NA
+              } 
+          } #End ss loop
+        
+        ## Make survival * growth matrix
+        surv.grwth.mx <- grwth.mx * t(matrix(rep(pred.surv,(n.bin)),(n.bin)))
+        mx1 <- surv.grwth.mx #Growth and survival, without reproduction
+        ## Add reproduction and recruitment
+        mx <- matrix(0, (n.bin+1), (n.bin+1))
+        mx[2:(n.bin+1), 2:(n.bin+1)] <- mx1
+        mx[2,1] <- pred.survSdlg                                  #First column (seedling survival in element 2,1)
+        mx[1,2:(n.bin+1)] <- pred.numSdlg                         #First row (new seedlings)
+    
+        lam.out.template[bb,2] <- Re(eigen(mx)$values[1])         #Calculate & store lambda
+    
+}  #End bb loop
+
+
+## Look at results
+lam.out.template
+
+```
+
+
+
+
+## SSDM TO GET DETERMINISTIC LAMBDA, VITAL RATES, & MATRICES FOR EACH TRANSECT & YEAR OF STUDY PERIOD
+```{r}
+
+## SSDM ------------------------------
+bin.num <- 50  #Define number of bins 
+
+## Improved method of finding median size/ bin mids 
+vec.bin = c(minsize, minsize+1:bin.num*(maxsize-minsize)*(1/bin.num)) 
+## Do this block to make medians the focal estimated size for each category
+binmids = rep(NA, length(vec.bin)-1)
+    
+for(jj in 1:(length(vec.bin)-1)) {
+    # set limits for subset according to bin breaks
+    bounds <- c(vec.bin[jj], vec.bin[jj+1])
+    # subset data according to bounds
+    subsetszs <- pdfsz2[which(pdfsz2[,1] >= bounds[1] & pdfsz2[,1] < bounds[2]),]
+    binmids[jj] <- weightedMedian(subsetszs[,1],subsetszs[,2])
+    }
+  
+n.bin = length(binmids)
+truebinsizes = n.bin  
+
+
+
+
+## CREATE VARIABLES FOR OUTPUT
+clim32yr$Year <- as.factor(clim32yr$Year)
+clim32yr <- clim32yr %>% rename(PptFall=Tot_fall_ppt, PptWinter=Tot_winter_ppt, PptSummer=Tot_summer_ppt,
+                   TempFall=Mean_fall_temp, TempWinter=Mean_winter_temp, TempSummer=Mean_summer_temp)
+clim32yr <- clim32yr %>% mutate(PptFall1=lead(PptFall), PptWinter1=lead(PptWinter), PptSummer1=lead(PptSummer),
+                   TempFall1=lead(TempFall), TempWinter1=lead(TempWinter), TempSummer1=lead(TempSummer))
+clim32yr <- clim32yr[14:32,]       #Subset to only include study-period years 
+
+
+params <- 1000  #Number of iterations for parameter uncertainty eg. 1000
+num.year <- length(unique(clim32yr$Year))-1
+num.transect <- length(unique(erbr$TransectNew))
+list.year <- sort(unique(clim32yr$Year[1:(nrow(clim32yr)-1)]))
+list.transect <- sort(unique(erbr$TransectNew))
+
+## Make data frames to hold output
+## Want lambda estimate for each parameter set, year, and transect 
+column.names <- c("PARAM","YEAR","TRANSECT","LAMBDA")
+lam.out.template <- as.data.frame(matrix(NA, nrow=num.year*num.transect*params, ncol=length(column.names)))
+colnames(lam.out.template) <- column.names
+lam.out.template$TRANSECT <- rep(unique(erbr$TransectNew))
+lam.out.template$YEAR <- rep(sort(clim32yr$Year[1:(nrow(clim32yr)-1)]), each=num.transect)
+lam.out.template$PARAM <- rep(1:params, each=(nrow(lam.out.template)/params))
+lam.out.param <- NULL      #Variable to store final lambda outputs
+
+column.names.vrs <- c("PARAM","YEAR","TRANSECT","SZ","GRWTH","SURV","REPRO_PROB","REPRO_AMT","NEW_PLTS")
+vrs.template <- as.data.frame(matrix(NA, nrow=num.year*num.transect*params*bin.num, ncol=length(column.names.vrs)))
+colnames(vrs.template) <- column.names.vrs
+vrs.template$SZ <- rep(binmids)
+vrs.template$TRANSECT <- rep(unique(erbr$TransectNew), each=length(binmids))
+vrs.template$YEAR <- rep(sort(unique(erbr$Year)), each=(num.transect*length(binmids)))
+vrs.template$YEAR <- rep(sort(clim32yr$Year[1:(nrow(clim32yr)-1)]), each=(num.transect*length(binmids)))
+vrs.template$PARAM <- rep(1:params, each=(nrow(vrs.template)/params))
+vrs.param <- NULL          #Variable to store final vital rate outputs
+
+mx.out.list <- NULL        #List variable to store all matrices
+
+
+## Initialize variable with input data for predictions
+in.data <- as.data.frame(binmids) 
+colnames(in.data) <- "RosNew"
+
+
+## List of random numbers that corresponds to a set of parameter values to be used in each iteration of parameter loop
+randVals.param <- sample(1:nrow(chains), size=params, prob=NULL, replace=FALSE)
+
+
+
+## Loop for parameter uncertainty
+for (pp in 1:params) {
+  template.param <- subset(lam.out.template, PARAM==pp)  #Subset output template by param in parameter loop 
+  lam.out.yr <- NULL                                     #Reset output variable each year loop
+  temp.vrs.param <- subset(vrs.template, PARAM==pp)  
+  vrs.yr <- NULL  
+  
+  ## Randomly select set of parameter values for all vital rates from chain list 
+  selParams <- chains[randVals.param[pp],]
+  
+  ## Separate out transect random intercepts 
+  randTrans.grwth <- names(selParams)[grep("grwth_Transect_random",names(selParams))]
+  randTrans.surv <- names(selParams)[grep("surv_Transect_random",names(selParams))]
+  randTrans.reproYesNo <- names(selParams)[grep("reproyesno_Transect_random",names(selParams))]
+  randTrans.repro <- names(selParams)[grep("repro_Transect_random",names(selParams))]
+  
+
+
+  ## Loop over years and transects
+  for (yy in 1:num.year) {
+    template.yr <- subset(template.param, YEAR==list.year[yy])  #Subset output template based on year in year loop
+    temp.vrs.yr <- subset(temp.vrs.param, YEAR==list.year[yy])
+    vrs.trans <- NULL
+    
+    for (tt in 1:num.transect) {
+      temp.vrs.trans <- subset(temp.vrs.yr, TRANSECT==list.transect[tt])  #Subset vital rate output template based on transect
+
+      ## Define different variable combinations for which to estimate lambda
+      in.data$Year <- list.year[yy]
+      in.data$TransectNew <- list.transect[tt]
+      in.data <- in.data %>% mutate(PptSummer=unique(clim32yr$PptSummer[clim32yr$Year==list.year[yy]]), 
+                 PptWinter=unique(clim32yr$PptWinter[clim32yr$Year==list.year[yy]]), 
+                 PptFall=unique(clim32yr$PptFall[clim32yr$Year==list.year[yy]]), 
+                 TempSummer=unique(clim32yr$TempSummer[clim32yr$Year==list.year[yy]]), 
+                 TempFall=unique(clim32yr$TempFall[clim32yr$Year==list.year[yy]]),
+                 TempWinter=unique(clim32yr$TempWinter[clim32yr$Year==list.year[yy]]), 
+                 PptSummer1=unique(clim32yr$PptSummer1[clim32yr$Year==list.year[yy]]), 
+                 PptWinter1=unique(clim32yr$PptWinter1[clim32yr$Year==list.year[yy]]),
+                 PptFall1=unique(clim32yr$PptFall1[clim32yr$Year==list.year[yy]]), 
+                 TempFall1=unique(clim32yr$TempFall1[clim32yr$Year==list.year[yy]]),
+                 TempSummer1=unique(clim32yr$TempSummer1[clim32yr$Year==list.year[yy]]), 
+                 TempWinter1=unique(clim32yr$TempWinter1[clim32yr$Year==list.year[yy]]))
+      
+                 
+        
+        ## Plug selected param values for given loop, predictor values for given year, transect, & size class into model formulas
+        ## Growth (negative binomial)
+        pred.grwth <- exp(selParams$grwth_intercept + selParams$grwth_RosCoef*log(in.data$RosNew) 
+                      + selParams$grwth_TempFallCoef*in.data$TempFall1 + selParams$grwth_TempSummerCoef*in.data$TempSummer1 
+                      + selParams$grwth_TempWinterCoef*in.data$TempWinter1 + selParams$grwth_PptFallCoef*in.data$PptFall1
+                      + selParams$grwth_PptSummerCoef*in.data$PptSummer1 + selParams$grwth_PptWinterCoef*in.data$PptWinter1
+                      + as.numeric(selParams[randTrans.grwth[tt]])) 
+        pred.grwth[pred.grwth > maxsize] <- maxsize  #If predictions exceed bounds, change to max value
+
+        ## Variance in growth (negative binomial)
+        pred.grwthVar <- exp(selParams$grwthvar_intercept + selParams$grwthvar_RosCoef*log(in.data$RosNew)) 
+
+        ## Survival (binomial)  
+        pred.surv <- 1/(1+exp(-(selParams$surv_intercept + selParams$surv_RosCoef*log(in.data$RosNew) + 
+                     selParams$surv_PptWinterCoef*in.data$PptWinter1 + selParams$surv_TempWinterCoef*in.data$TempWinter1 +
+                     selParams$surv_TempSummerCoef*in.data$TempSummer1 + selParams$surv_TempFallCoef*in.data$TempFall1 +
+                     as.numeric(selParams[randTrans.surv[tt]]))))
+
+        ## Probability of reproducing (binomial)  
+        pred.reproYesNo <- 1/(1+exp(-(selParams$reproyesno_intercept + selParams$reproyesno_RosCoef*log(in.data$RosNew) +
+                           selParams$reproyesno_PptFallCoef*in.data$PptFall + selParams$reproyesno_PptSummerCoef*in.data$PptSummer +
+                           selParams$reproyesno_TempFallCoef*in.data$TempFall + selParams$reproyesno_TempSummerCoef*in.data$TempSummer
+                           + selParams$reproyesno_TempWinterCoef*in.data$TempWinter 
+                           + as.numeric(selParams[randTrans.reproYesNo[tt]])))) 
+
+        ## Reproduction (negative binomial)
+        pred.repro <- exp(selParams$repro_intercept + selParams$repro_RosCoef*log(in.data$RosNew) + 
+                      selParams$repro_PptSummerCoef*in.data$PptSummer + selParams$repro_PptFallCoef*in.data$PptFall
+                      + selParams$repro_TempFallCoef*in.data$TempFall + selParams$repro_TempSummerCoef*in.data$TempSummer
+                      + selParams$repro_TempWinterCoef*in.data$TempWinter + as.numeric(selParams[randTrans.repro[tt]]))
+        pred.repro[pred.repro < 0] <- 0    #Correct for negative reproduction estimates
+        
+
+        ## Seedling survival (binomial)  
+        in.dataSdlg <- in.data[1,]  #Subset to keep only 1 row of in.data 
+        in.dataSdlg$RosNew <- 1     #Change rosette size in in.data to be 1 (size of seedling)
+        pred.survSdlg <- 1/(1+exp(-(selParams$surv_intercept + selParams$surv_RosCoef*log(in.dataSdlg$RosNew) + 
+                                selParams$surv_PptWinterCoef*in.dataSdlg$PptWinter1 + 
+                                selParams$surv_TempWinterCoef*in.dataSdlg$TempWinter1 +
+                                selParams$surv_TempSummerCoef*in.dataSdlg$TempSummer1 + 
+                                selParams$surv_TempFallCoef*in.dataSdlg$TempFall1 +
+                                as.numeric(selParams[randTrans.surv[tt]]))))
+
+        ## Seedlings per inflorescence (negative binomial)
+        pred.numSdlg <- exp(selParams$newplt_intercept + log(pred.repro))
+
+        ## Store vital rate predictions
+        temp.vrs.trans$GRWTH <- pred.grwth
+        temp.vrs.trans$GRWTH_VAR <- pred.grwthVar
+        temp.vrs.trans$SURV <- pred.surv
+        temp.vrs.trans$REPRO_PROB <- pred.reproYesNo
+        temp.vrs.trans$REPRO_AMT <- pred.repro
+        temp.vrs.trans$NEW_PLTS <- pred.numSdlg
+        vrs.trans <- rbind(vrs.trans, temp.vrs.trans)         #Combine vital rates for all transects
+
+   
+        ## Constructing matrix models
+        grwth.mx <- matrix(data=NA, nrow=n.bin, ncol=n.bin)
+    
+        ## growth probabilities using cdf function
+        for (ss in 1:(n.bin)) {
+          grwth.cdf <- pnorm(vec.bin, pred.grwth[ss], sqrt(pred.grwthVar[ss]))
+          grwth <- grwth.cdf[2:length(vec.bin)] - grwth.cdf[1:(length(vec.bin)-1)]
+          if (sum(grwth)>0) {   #If statement breaks code (puts NA's into matrix) if sum of PDF=0 (happens if all prob outside of size bounds)
+            grwth <- grwth/sum(grwth)
+            grwth.mx[,ss] <- grwth
+            } else {
+              grwth.mx[,ss] <- NA
+              } 
+          } #End ss loop
+        
+        ## Make survival * growth matrix
+        surv.grwth.mx <- grwth.mx * t(matrix(rep(pred.surv,(n.bin)),(n.bin)))
+        mx1 <- surv.grwth.mx #growth and survival, without reproduction
+        ## Add reproduction and recruitment
+        mx <- matrix(0, (n.bin+1), (n.bin+1))
+        mx[2:(n.bin+1), 2:(n.bin+1)] <- mx1
+        mx[2,1] <- pred.survSdlg                                  #First column (seedling survival in element 2,1)
+        mx[1,2:(n.bin+1)] <- pred.reproYesNo * pred.numSdlg       #First row (new seedlings)
+    
+        template.yr[tt,4] <- Re(eigen(mx)$values[1])              #Calculate lambda & store for each transect
+        mx.out.list[[length(mx.out.list) + 1]] <- mx
+        } # End tt loop
+    
+        lam.out.yr <- rbind(lam.out.yr, template.yr)     #Combine lambda values for all years 
+        vrs.yr <- rbind(vrs.yr, vrs.trans)               #Combine vital rate values for all years 
+        
+  }    #End yy loop
+
+  lam.out.param <- rbind(lam.out.param, lam.out.yr)      #Combine lambda values for all parameter values
+  vrs.param <- rbind(vrs.param, vrs.yr)                  #Combine vital rate values for all parameter values
+
+}    #End pp loop
+
+```
+
+
+
+```{r}
+
+## SAVE OUTPUT
+## Save lambda & vital rate output 
+date <- Sys.Date()        #Get date to be added to file name
+date <- str_replace_all(date, "-", "")
+name <- as.character("Param1k")
+saveRDS(lam.out.param, file=paste("erbrLams", name, date, sep="_"))
+saveRDS(vrs.param, file=paste("erbrVRs", name, date, sep="_"))
+
+
+## Save list of matrices as an R object for use in stochastic lambda script 
+## Name each matrix by its parameter, year, and transect
+paramYrTrans.comb <- lam.out.template[,1:3]
+names(mx.out.list) <- paste(as.character(paramYrTrans.comb$YEAR), as.character(paramYrTrans.comb$TRANSECT), sep='_')
+names(mx.out.list) <- paste(as.character(paramYrTrans.comb$PARAM), names(mx.out.list), sep="-")
+names(mx.out.list) <- paste("p", names(mx.out.list), sep="")
+
+saveRDS(mx.out.list, file=paste("erbrSSDMmxList", name, date, sep="_"))
+
+
+
+
+## LOOK AT RESULTS
+cols <- viridis(12)
+par(mfrow=c(5,4))                      #Plot in 20 panels
+par(mar=c(2,3.9,2,2), mgp = c(2.3, 1, 0))  
+
+for (pp in 1:length(list.year)) {
+  lam.yr <- subset(lam.out.param, YEAR==list.year[pp])
+  boxplot(LAMBDA ~ TRANSECT, data=lam.yr, main=paste(as.character(list.year[pp])),ylim=c(0.3,1.3),
+  xaxt='n',xlab=NA, cex=0.5, ylab="Lambda", cex.lab=1.6, cex.axis=1.4, font.main=1, cex.main=1.7,
+  medlwd=1,col=cols)
+  abline(h=1,col="red", lwd=0.75)
+}
+
+```
+
+
+
+
+
+
+## LOOK AT RELATIONSHIP B/W EACH VR AND PLT SIZE
+```{r}
+
+## Load vital rates for different data sets
+vrs.param <- readRDS("erbrVRs_Param1k")
+vrs.param4to13 <- readRDS("erbrVRs_4to13_Param1k")
+
+
+
+## In all years 
+vrs.mean <- vrs.param %>% group_by(SZ) %>% dplyr::summarize(MEAN_GRWTH=mean(GRWTH),MEAN_GRWTHVAR=mean(GRWTH_VAR),
+                                           MEAN_SURV=mean(SURV),MEAN_REPROPROB=mean(REPRO_PROB),
+                                           MEAN_REPROAMT=mean(REPRO_AMT),MEAN_NEWPLTS=mean(NEW_PLTS))
+vrs.mean4to13 <- vrs.param4to13 %>% group_by(SZ) %>% dplyr::summarize(MEAN_GRWTH=mean(GRWTH),MEAN_GRWTHVAR=mean(GRWTH_VAR),
+                                           MEAN_SURV=mean(SURV),MEAN_REPROPROB=mean(REPRO_PROB),
+                                           MEAN_REPROAMT=mean(REPRO_AMT),MEAN_NEWPLTS=mean(NEW_PLTS))
+
+## In driest and wettest years 
+#clim32yr$Year <- as.factor(clim32yr$Year)
+clim32yr <- clim32yr %>% rename(PptFall=Tot_fall_ppt, PptWinter=Tot_winter_ppt, PptSummer=Tot_summer_ppt,
+                   TempFall=Mean_fall_temp, TempWinter=Mean_winter_temp, TempSummer=Mean_summer_temp)
+clim32yr <- clim32yr %>% mutate(PptFall1=lead(PptFall), PptWinter1=lead(PptWinter), PptSummer1=lead(PptSummer),
+                   TempFall1=lead(TempFall), TempWinter1=lead(TempWinter), TempSummer1=lead(TempSummer))
+dats.clim <- clim32yr %>% dplyr::select(c(Year, PptWinter, PptSummer, TempWinter, TempSummer,PptFall,TempFall, 
+                                      PptWinter1, PptSummer1, TempWinter1, TempSummer1)) 
+
+clim <- unique(dats.clim)
+clim <- clim[order(clim$Year),]
+climSums <-  clim %>% rowwise() %>% mutate(PPT_SUM=sum(PptWinter,PptSummer,PptFall))  #Add over 3 seasons for annual totals
+min.ppt <- climSums$Year[which.min(climSums$PPT_SUM)] #2011
+max.ppt <- climSums$Year[which.max(climSums$PPT_SUM)] #2015
+## Note: 2007 is wettest year in 2004-2013 range 
+
+
+## Subset lambdas by wettest and driest year 
+vrs.minPpt <- subset(vrs.param, YEAR==min.ppt)
+vrs.maxPpt <- subset(vrs.param, YEAR==max.ppt)
+vrs.minPpt.mean <- vrs.minPpt %>% group_by(SZ) %>% dplyr::summarize(MEAN_GRWTH=mean(GRWTH),MEAN_GRWTHVAR=mean(GRWTH_VAR),
+                                                   MEAN_SURV=mean(SURV),MEAN_REPROPROB=mean(REPRO_PROB),
+                                                   MEAN_REPROAMT=mean(REPRO_AMT),MEAN_NEWPLTS=mean(NEW_PLTS))
+vrs.maxPpt.mean <- vrs.maxPpt %>% group_by(SZ) %>% dplyr::summarize(MEAN_GRWTH=mean(GRWTH),MEAN_GRWTHVAR=mean(GRWTH_VAR),
+                                                   MEAN_SURV=mean(SURV),MEAN_REPROPROB=mean(REPRO_PROB),
+                                                   MEAN_REPROAMT=mean(REPRO_AMT),MEAN_NEWPLTS=mean(NEW_PLTS))
+
+vrs.minPpt4to13 <- subset(vrs.param4to13, YEAR==min.ppt)
+vrs.maxPpt4to13 <- subset(vrs.param4to13, YEAR==max.ppt)
+vrs.minPpt4to13.mean <- vrs.minPpt4to13 %>% group_by(SZ) %>% dplyr::summarize(MEAN_GRWTH=mean(GRWTH),
+                                                   MEAN_GRWTHVAR=mean(GRWTH_VAR),
+                                                   MEAN_SURV=mean(SURV),MEAN_REPROPROB=mean(REPRO_PROB),
+                                                   MEAN_REPROAMT=mean(REPRO_AMT),MEAN_NEWPLTS=mean(NEW_PLTS))
+vrs.maxPpt4to13.mean <- vrs.maxPpt4to13 %>% group_by(SZ) %>% dplyr::summarize(MEAN_GRWTH=mean(GRWTH),
+                                                   MEAN_GRWTHVAR=mean(GRWTH_VAR),
+                                                   MEAN_SURV=mean(SURV),MEAN_REPROPROB=mean(REPRO_PROB),
+                                                   MEAN_REPROAMT=mean(REPRO_AMT),MEAN_NEWPLTS=mean(NEW_PLTS))
+
+
+##Plot results (Fig. 3)
+colz <- c("#d73027","#fc8d59")
+bin.num <- 50  #Define number of bins 
+
+pdf('ErBr_fig3.pdf', width=6.5, height=7, pointsize=8)
+par(mfrow=c(2,2))                               #Plot in 4 panels
+par(mar=c(9.3,5.5,1.75,3), mgp = c(2.5, 1, 0))  #bottom, left, top, and right
+
+plot(vrs.param$SZ[1:bin.num], vrs.mean$MEAN_GRWTH, xlab="Plant size in t (rosette number)",ylim=c(0,90), 
+     ylab="Plant size in t+1\n(rosette number)", type='l',lwd=2,cex.lab=1.5, cex.axis=1.25, col="#d73027",
+     main="Growth")
+lines(vrs.param$SZ[1:bin.num], vrs.minPpt.mean$MEAN_GRWTH, col="#d73027",lwd=2,lty="dashed")
+lines(vrs.param$SZ[1:bin.num], vrs.maxPpt.mean$MEAN_GRWTH, col="#d73027",lwd=2,lty="dotted")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.mean4to13$MEAN_GRWTH, col="#fc8d59",lwd=2, lty="solid")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.minPpt4to13.mean$MEAN_GRWTH, col="#fc8d59",lwd=2, lty="dashed")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.maxPpt4to13.mean$MEAN_GRWTH, col="#fc8d59",lwd=2, lty="dotted")
+
+plot(vrs.param$SZ[1:bin.num], vrs.mean$MEAN_SURV, xlab="Plant size in t (rosette number)", 
+     ylab="Survival probability", type='l',lwd=2,cex.lab=1.5, cex.axis=1.25, col="#d73027",ylim=c(0.8,1),
+     main="Survival")
+lines(vrs.param$SZ[1:bin.num], vrs.minPpt.mean$MEAN_SURV, col="#d73027",lwd=2,lty="dashed")
+lines(vrs.param$SZ[1:bin.num], vrs.maxPpt.mean$MEAN_SURV, col="#d73027",lwd=2,lty="dotted")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.mean4to13$MEAN_SURV, col="#fc8d59",lwd=2, lty="solid")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.minPpt4to13.mean$MEAN_SURV, col="#fc8d59",lwd=2, lty="dashed")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.maxPpt4to13.mean$MEAN_SURV, col="#fc8d59",lwd=2, lty="dotted")
+
+plot(vrs.param$SZ[1:bin.num], vrs.mean$MEAN_REPROPROB, xlab="Plant size in t (rosette number)", 
+     ylab="Reproduction probability", type='l',lwd=2,cex.lab=1.5, cex.axis=1.25, col="#d73027",ylim=c(0,1),
+     main="Probability of reproducing")
+lines(vrs.param$SZ[1:bin.num], vrs.minPpt.mean$MEAN_REPROPROB, col="#d73027",lwd=2,lty="dashed")
+lines(vrs.param$SZ[1:bin.num], vrs.maxPpt.mean$MEAN_REPROPROB, col="#d73027",lwd=2,lty="dotted")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.mean4to13$MEAN_REPROPROB, col="#fc8d59",lwd=2, lty="solid")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.minPpt4to13.mean$MEAN_REPROPROB, col="#fc8d59",lwd=2, lty="dashed")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.maxPpt4to13.mean$MEAN_REPROPROB, col="#fc8d59",lwd=2, lty="dotted")
+
+plot(vrs.param$SZ[1:bin.num], vrs.mean$MEAN_REPROAMT, xlab="Plant size in t (rosette number)",ylim=c(0,155),
+     ylab="Reproduction amount\n(inflorescence number)", type='l',lwd=2,cex.lab=1.5, cex.axis=1.25, col="#d73027",
+     main="Reproduction amount")
+lines(vrs.param$SZ[1:bin.num], vrs.minPpt.mean$MEAN_REPROAMT, col="#d73027",lwd=2,lty="dashed")
+lines(vrs.param$SZ[1:bin.num], vrs.maxPpt.mean$MEAN_REPROAMT, col="#d73027",lwd=2,lty="dotted")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.mean4to13$MEAN_REPROAMT, col="#fc8d59",lwd=2, lty="solid")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.minPpt4to13.mean$MEAN_REPROAMT, col="#fc8d59",lwd=2, lty="dashed")
+lines(vrs.param4to13$SZ[1:bin.num], vrs.maxPpt4to13.mean$MEAN_REPROAMT, col="#fc8d59",lwd=2, lty="dotted")
+
+legend("bottomleft", c("Full dataset", "2004-2013"), col=colz,lwd=2,
+       cex=1.1, inset=c(0,-0.4), xpd=TRUE, horiz=FALSE, bty="y",seg.len=1) #inset=c(-0.2,-0.4)
+legend("bottomright", c("All years", "Wettest year", "Driest year"), col="black",lwd=1,cex=1.2,
+       lty=c("solid","dotted","dashed"),
+       inset=c(0,-0.44), xpd=TRUE, horiz=FALSE, bty="y",seg.len=1.5) #inset=c(-0.2,-0.44)
+
+dev.off()
+## --------------------------------------------------------------------------
+
+```
