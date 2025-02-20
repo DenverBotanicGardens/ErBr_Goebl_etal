@@ -1,4 +1,4 @@
-## Code used for analyses in Goebl et al. 2024 manuscript on Eriogonum brandegeii modeling
+## Code written by D. Doak and A. Goebl used for analyses in Goebl et al. 2024 manuscript on Eriogonum brandegeii modeling
 ## Generate simulated data on lives of individual plants with known demographic parameters 
 
 
@@ -493,7 +493,7 @@ for (dd in 1:n.datset) {
   
   
   ## LOAD NO MISSING DATA TO PROCESS WITH THE FOLLOWING FORMATTING CODE
-   #datComb1 <- read.csv(file=paste("20240925_erbr_SimDat40yrNoMiss.srvCor.sdlgcor.",dd,".csv",sep=""), header = TRUE)
+   #datComb1 <- read.csv(file=paste("erbr_SimDat20yrNoMiss.",dd,".csv",sep=""), header = TRUE)
   ## ------------------------------------------------------------------------------------------------
   
   
